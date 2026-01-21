@@ -9,6 +9,7 @@ dependencies = [
     "fredapi>=0.5.2",
     "numpy>=2.4.1",
     "pandas>=2.3.3",
+    "pyarrow>=23.0.0",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "yfinance>=1.0",
@@ -46,7 +47,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["gpu_port_opt"]
+known-first-party = ["gpu_port_opt", "src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -54,3 +55,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
