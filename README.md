@@ -128,7 +128,89 @@ Unit tests are provided in [tests/feature_engineering/test_feature_engineering.p
 
 ### 3. Regime Detection
 
-TODO
+Advanced market regime detection using multiple methodologies: volatility analysis, clustering, Hidden Markov Models (HMM), and Bayesian changepoint detection.
+
+*TODO: Use features engineered in module 2 as inputs to at least one regime detector*
+
+Regime detectors:
+
+#### Volatility-Based Detection (Fastest)
+
+Simple but effective method based on rolling volatility quantiles.
+
+How it works:
+
+- Calculates rolling volatility across all assets
+- Divides into regimes based on quantile thresholds
+- Identifies: Low Vol, Normal, High Vol, Crisis
+
+```
+Vol_t = σ(r_{t-w:t})
+Regime_t = Quantile_bin(Vol_t)
+```
+
+#### Clustering-Based Detection (GPU-Accelerated)
+
+Uses K-Means clustering on market features to identify regimes.
+
+Features used:
+
+- Market returns (equal-weighted)
+- Rolling volatility
+- Average correlation
+- Return dispersion (cross-sectional std)
+
+How it works:
+
+- Compute rolling market features
+- Standardize features
+- Optional: PCA for dimensionality reduction
+- K-Means clustering (GPU-accelerated with cuML)
+- Assign regime names based on characteristics
+
+```
+min Σ ||x_i - μ_{c(i)}||^2
+subject to: c(i) ∈ {1,...,K}
+```
+
+#### Hidden Markov Model (HMM)
+
+Statistical model that assumes market states are "hidden" and inferred from observed data.
+
+How it works:
+
+- Assumes market evolves through hidden states
+- Observes returns and volatility
+- Uses Expectation-Maximization (EM) to learn:
+  - Transition probabilities between states
+  - Emission distributions (what each state looks like)
+- Viterbi algorithm finds most likely state sequence
+
+
+```
+P(s_t | s_{t-1}) = Transition matrix
+P(x_t | s_t) = Emission distribution
+```
+
+
+#### Bayesian Changepoint Detection (Most Advanced)
+
+Uses Bayesian inference to detect structural breaks and regime changes.
+
+How it works:
+
+- Places priors on changepoint locations
+- Places priors on regime means and variances
+- Uses MCMC (Markov Chain Monte Carlo) sampling
+- Posterior distribution gives uncertainty estimates
+
+```
+τ ~ Uniform(T_min, T_max)
+μ_k ~ Normal(0, σ_μ)
+σ_k ~ HalfNormal(σ_σ)
+```
+
+Unit tests are provided in [tests/regime_detection/test_regime_detection.py](tests/regime_detection/test_regime_detection.py).
 
 ### 4. Multi-Asset Forecasting
 

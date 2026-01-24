@@ -10,5 +10,9 @@
     "ruff.enable": true,
     "ruff.format.args": [],
     "ruff.lint.args": [],
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false
 }
