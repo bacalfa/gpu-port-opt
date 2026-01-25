@@ -212,21 +212,85 @@ How it works:
 
 Unit tests are provided in [tests/regime_detection/test_regime_detection.py](tests/regime_detection/test_regime_detection.py).
 
-### 4. Multi-Asset Forecasting
+### 4. Stochastic Portfolio Optimization
 
-TODO
+Advanced portfolio optimization using Pyomo for mathematical modeling with GPU-accelerated covariance computation. Implements multiple optimization strategies including regime-aware allocation.
 
-### 5. Stochastic Portfolio Optimization
+*TODO: Use regime results in module 3 as inputs to regime-aware optimization*
 
-TODO
+**Prerequisites:** Install IPOPT solver first (instructions for Mac OS):
 
-### 6. Backtesting Engine
+```bash
+brew install ipopt
+```
 
-TODO
+Optimization methods:
 
-### 7. Visualizations
+#### Mean-Variance Optimization (Markowitz)
+Classic portfolio optimization balancing return and risk.
 
-TODO
+Objective:
+
+```
+Maximize: E[R] - λ * Var[R]
+```
+
+#### Minimum Variance Portfolio
+Finds the portfolio with minimum risk, regardless of return.
+
+Objective:
+
+```
+Minimize: Var[R]
+```
+
+#### Maximum Sharpe Ratio
+
+Finds the portfolio with the best risk-adjusted return.
+
+Objective:
+
+```
+Maximize: (E[R] - rf) / σ[R]
+```
+
+Implementation Note: Solved via quadratic reformulation:
+
+```
+Minimize: w'Σw  subject to  (μ - rf)'w = 1
+```
+
+Then normalize: `w_final = w / sum(w)`
+
+#### Risk Parity
+
+Equalizes risk contribution from each asset.
+
+Concept:
+
+```
+Risk Contribution_i = w_i * (Σw)_i / σ_p
+
+Goal: RC_1 = RC_2 = ... = RC_n
+```
+
+Implementation: Simplified inverse volatility weighting
+
+```
+w_i ∝ 1/σ_i
+```
+
+#### Regime-Aware Optimization
+
+Optimizes considering multiple market regimes and their probabilities.
+
+Objective:
+
+```
+Maximize: Σ_r P(regime=r) * [E[R|r] - λ*Var[R|r]] - TC*|Δw|
+```
+
+Unit tests are provided in [tests/optimization/test_portfolio_optimization.py](tests/optimization/test_portfolio_optimization.py).
 
 ## Installation
 

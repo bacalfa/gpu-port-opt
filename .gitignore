@@ -11,3 +11,6 @@ data/*
 
 # Logs folder
 logs/*
+
+# Results folder
+results/*

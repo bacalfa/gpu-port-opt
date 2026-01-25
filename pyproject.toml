@@ -12,6 +12,7 @@ dependencies = [
     "pandas>=2.3.3",
     "pyarrow>=23.0.0",
     "pymc>=5.26.1",
+    "pyomo>=6.9.5",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "scikit-learn>=1.8.0",
