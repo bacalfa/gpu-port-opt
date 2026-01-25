@@ -19,6 +19,7 @@ Author: Bruno Abreu Calfa
 """
 
 import logging
+import re
 import warnings
 from pathlib import Path
 
@@ -282,7 +283,11 @@ class ClusteringRegimeDetector:
         return features
 
     def detect_regimes(
-        self, returns: pd.DataFrame, use_pca: bool = True, n_components: int = 3
+        self,
+        returns: pd.DataFrame,
+        use_pca: bool = True,
+        n_components: int = 3,
+        prepare_features: bool = True,
     ) -> pd.DataFrame:
         """
         Detect regimes using K-Means clustering
@@ -291,6 +296,7 @@ class ClusteringRegimeDetector:
             returns: Return data
             use_pca: Whether to use PCA for dimensionality reduction
             n_components: Number of PCA components
+            prepare_features: Whether to prepare features internally
 
         Returns:
             DataFrame with regime assignments and probabilities
@@ -298,7 +304,7 @@ class ClusteringRegimeDetector:
         logger.info("Detecting regimes using K-Means clustering...")
 
         # Prepare features
-        features = self.prepare_features(returns)
+        features = self.prepare_features(returns) if prepare_features else returns
 
         # Standardize features
         features_scaled = self.scaler.fit_transform(features)
@@ -377,8 +383,11 @@ class ClusteringRegimeDetector:
         """
         Characterize regimes based on their feature means
 
+        Supports both internal features (from prepare_features) and external engineered features
+        from the feature_engineering module.
+
         Args:
-            features: Feature DataFrame
+            features: Feature DataFrame (can be from prepare_features or feature_engineering module)
             regimes: Regime assignments
 
         Returns:
@@ -389,21 +398,87 @@ class ClusteringRegimeDetector:
             mask = regimes == i
             regime_means[i] = features[mask].mean()
 
-        # Create regime names based on characteristics
+        # Check for volatility-related features
+        vol_cols = []
+        for col in {"volatility", "vol", "std", "volatility_std"}:
+            matched_cols = [re.findall(f".*_?{col}_?.*", c) for c in features.columns]
+            if matched_cols:
+                vol_cols.extend([c for c_matched in matched_cols for c in c_matched if c])
+        vol_cols = np.array(vol_cols)
+
+        # Check for return-related features
+        return_cols = []
+        for col in {
+            "market_return",
+            "return",
+            "returns",
+            "pct_change",
+            "daily_return",
+            "mean_return",
+        }:
+            matched_cols = [re.findall(f".*_?{col}_?.*", c) for c in features.columns]
+            if matched_cols:
+                return_cols.extend([c for c_matched in matched_cols for c in c_matched if c])
+        return_cols = np.array(return_cols)
+
+        # Check for correlation features
+        corr_cols = []
+        for col in {"correlation", "corr", "avg_correlation"}:
+            matched_cols = [re.findall(f".*_?{col}_?.*", c) for c in features.columns]
+            if matched_cols:
+                corr_cols.extend([c for c_matched in matched_cols for c in c_matched if c])
+        corr_cols = np.array(corr_cols)
+
+        # Check for dispersion features
+        dispersion_cols = []
+        for col in {"dispersion", "return_dispersion", "std_dispersion"}:
+            matched_cols = [re.findall(f".*_?{col}_?.*", c) for c in features.columns]
+            if matched_cols:
+                dispersion_cols.extend([c for c_matched in matched_cols for c in c_matched if c])
+        dispersion_cols = np.array(dispersion_cols)
+
+        # Create regime names based on available characteristics
         regime_names = {}
 
         for i in range(self.n_regimes):
             means = regime_means[i]
+            descriptors = []
 
-            # Characterize by volatility and returns
-            if means["volatility"] < features["volatility"].median():
-                vol_desc = "Low Vol"
+            # Add return descriptor if available
+            if len(return_cols) > 0:
+                return_desc = "Bull" if means[return_cols].median() > 0 else "Bear"
+                descriptors.append(return_desc)
+
+            # Add volatility descriptor if available
+            if len(vol_cols) > 0:
+                vol_median = features[vol_cols].median()
+                if len(vol_median) > 0:
+                    vol_median = vol_median.median()
+                vol_desc = "Low Vol" if means[vol_cols].median() < vol_median else "High Vol"
+                descriptors.append(vol_desc)
+
+            # Add correlation descriptor if available (additional context)
+            if len(corr_cols) > 0:
+                corr_median = features[corr_cols].median()
+                if len(corr_median) > 0:
+                    corr_median = corr_median.median()
+                if means[corr_cols].median() > corr_median:
+                    descriptors.append("High Corr")
+
+            # Add dispersion descriptor if available
+            if len(dispersion_cols) > 0:
+                dispersion_median = features[dispersion_cols].median()
+                if len(dispersion_median) > 0:
+                    dispersion_median = dispersion_median.median()
+                if means[dispersion_cols].median() > dispersion_median:
+                    descriptors.append("High Disp")
+
+            # Create regime name
+            if descriptors:
+                regime_names[i] = " ".join(descriptors)
             else:
-                vol_desc = "High Vol"
-
-            return_desc = "Bull" if means["market_return"] > 0 else "Bear"
-
-            regime_names[i] = f"{return_desc} {vol_desc}"
+                # Fallback if no features could be used for characterization
+                regime_names[i] = f"Regime {i}"
 
         return regime_names
 
@@ -1148,9 +1223,73 @@ def main():
         logger.error("Data not found. Run download_data.py first.")
         return
 
+    # ============================================================================
+    # EXAMPLE 1: Regime Detection from Feature Engineering Output
+    # ============================================================================
+    print("\n" + "=" * 70)
+    print("EXAMPLE 1: REGIME DETECTION FROM ENGINEERED FEATURES")
+    print("=" * 70)
+    print("\nUsing engineered features from technical_indicators.py...")
+
+    features_path = Path("data/processed/features_complete.parquet")
+    if features_path.exists():
+        try:
+            logger.info("Loading engineered features from technical indicators...")
+            features = pd.read_parquet(features_path)
+            logger.info(f"✓ Loaded features: {features.shape}")
+
+            # Drop NaN rows to ensure clean data
+            features_clean = features.dropna()
+            logger.info(f"✓ Clean features: {features_clean.shape}")
+
+            # Perform regime detection on engineered features
+            print("\nDetecting regimes using engineered features (Clustering approach)...")
+            feature_detector = ClusteringRegimeDetector(n_regimes=4, use_gpu=True)
+            feature_regimes = feature_detector.detect_regimes(
+                features_clean, use_pca=True, n_components=10, prepare_features=False
+            )
+            print("\n✓ Regime detection completed on engineered features")
+            print(f"  Shape: {feature_regimes.shape}")
+            print(f"  Unique regimes: {feature_regimes['regime'].nunique()}")
+            print("\n  Regime distribution:")
+            print(feature_regimes["regime"].value_counts().sort_index())
+
+            # Analyze regime characteristics based on engineered features
+            print("\nAnalyzing regime characteristics from engineered features...")
+            analyzer = RegimeAnalyzer()
+            feature_characteristics = analyzer.analyze_regime_characteristics(
+                feature_regimes, features_clean
+            )
+            print("\nRegime characteristics (feature-based):")
+            print(feature_characteristics)
+
+            # Calculate regime transitions
+            feature_transitions = analyzer.calculate_regime_transitions(feature_regimes)
+            print("\nRegime transition matrix (feature-based):")
+            print(feature_transitions)
+
+            # Save feature-based regime results
+            output_dir = Path("data/processed")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            feature_regimes.to_parquet(output_dir / "regimes_from_features.parquet")
+            feature_characteristics.to_csv(output_dir / "regime_characteristics_from_features.csv")
+            feature_transitions.to_csv(output_dir / "regime_transitions_from_features.csv")
+
+            print("\n✓ Feature-based regime results saved to data/processed/")
+
+        except Exception as e:
+            logger.warning(f"Could not load engineered features: {e}")
+            logger.warning("Continuing with standard returns-based examples...")
+    else:
+        logger.warning(f"Engineered features not found at {features_path}.")
+        logger.warning(
+            "Run feature_engineering/technical_indicators.py first to generate features."
+        )
+        logger.warning("Continuing with standard returns-based examples...")
+
     # Test each detector
     print("\n" + "=" * 70)
-    print("REGIME DETECTION DEMONSTRATION")
+    print("EXAMPLE 2: REGIME DETECTION DEMONSTRATION (Standard Returns)")
     print("=" * 70)
 
     # 1. Volatility-based

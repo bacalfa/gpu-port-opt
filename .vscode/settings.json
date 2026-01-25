@@ -8,8 +8,6 @@
         }
     },
     "ruff.enable": true,
-    "ruff.format.args": [],
-    "ruff.lint.args": [],
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
         "tests"

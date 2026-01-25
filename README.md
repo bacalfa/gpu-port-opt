@@ -1,25 +1,21 @@
 # GPU-Accelerated Multi-Asset Portfolio Optimization with Macro Regime Detection
 
-🚧 *This repo is under construction*
-
 ## Overview
 A practice repo covering portfolio optimization system combining GPU-accelerated machine learning (cuML), Bayesian regime detection, and stochastic programming for multi-asset allocation under market uncertainty.
 
 ## Key Features
 - **GPU-Accelerated Feature Engineering**: 10x faster processing using RAPIDS cuDF/cuML
 - **Market Regime Detection**: Hidden Markov Models + Bayesian changepoint detection
-- **Multi-Regime Forecasting**: Separate ML models per market state
-- **Stochastic Optimization**: Regime-aware mean-variance optimization with transaction costs
+- **Mathematical Optimization**: Regime-aware mean-variance optimization with transaction costs
 - **Comprehensive Backtesting**: Walk-forward validation with realistic assumptions
 
-## Technologies (TBD)
-- **GPU Computing**: RAPIDS cuDF, cuML, cuGraph
-- **ML/AI**: Scikit-learn, PyTorch, HMMLearn
-- **Optimization**: CVXPY, SciPy
+## Technologies
+- **GPU Computing**: RAPIDS cuDF, cuML
+- **ML/AI**: Scikit-learn, HMMLearn
+- **Optimization**: Pyomo
 - **Bayesian**: PyMC
-- **Visualization**: Plotly, Streamlit
 
-## Major Modules (TBD)
+## Major Modules
 
 ### 1. Data Ingestion
 
@@ -130,8 +126,6 @@ Unit tests are provided in [tests/feature_engineering/test_feature_engineering.p
 
 Advanced market regime detection using multiple methodologies: volatility analysis, clustering, Hidden Markov Models (HMM), and Bayesian changepoint detection.
 
-*TODO: Use features engineered in module 2 as inputs to at least one regime detector*
-
 Regime detectors:
 
 #### Volatility-Based Detection (Fastest)
@@ -216,8 +210,6 @@ Unit tests are provided in [tests/regime_detection/test_regime_detection.py](tes
 
 Advanced portfolio optimization using Pyomo for mathematical modeling with GPU-accelerated covariance computation. Implements multiple optimization strategies including regime-aware allocation.
 
-*TODO: Use regime results in module 3 as inputs to regime-aware optimization*
-
 **Prerequisites:** Install IPOPT solver first (instructions for Mac OS):
 
 ```bash
@@ -291,6 +283,12 @@ Maximize: Σ_r P(regime=r) * [E[R|r] - λ*Var[R|r]] - TC*|Δw|
 ```
 
 Unit tests are provided in [tests/optimization/test_portfolio_optimization.py](tests/optimization/test_portfolio_optimization.py).
+
+## Future Work
+
+- **Multi-Regime Forecasting**: Separate ML models (with cuML support) per market state
+- **Stochastic Optimization**: Use ML forecasting to generate scenarios (from bearish to bullish) for optimization
+- **Visualization**: Dashboards nad graphical user interfaces (Plotly, Streamlit)
 
 ## Installation
 

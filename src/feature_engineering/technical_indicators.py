@@ -23,6 +23,7 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 # GPU acceleration with automatic fallback
 try:
@@ -756,15 +757,211 @@ class FeatureEngineer:
 
         return result
 
+    def remove_holidays(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Remove rows corresponding to market holidays
+
+        Args:
+            data: Input data with datetime index
+
+        Returns:
+            DataFrame with holidays removed
+        """
+        logger.info("Removing holiday rows...")
+
+        if not isinstance(data.index, pd.DatetimeIndex):
+            logger.warning("Index is not datetime, skipping holiday removal")
+            return data
+
+        # Create holiday mask
+        cal = USFederalHolidayCalendar()
+        holidays = cal.holidays(start=data.index[0], end=data.index[-1])
+        holiday_mask = data.index.isin(holidays)
+        result = data[~holiday_mask]
+
+        removed_count = len(data) - len(result)
+        logger.info(f"✓ Removed {removed_count} holiday rows")
+        logger.info(f"✓ Remaining rows: {len(result)}")
+
+        return result
+
+    def remove_weekends(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Remove rows corresponding to weekend days (market is closed)
+
+        Args:
+            data: Input data with datetime index
+
+        Returns:
+            DataFrame with weekends removed
+        """
+        logger.info("Removing weekend rows (market closed)...")
+
+        if not isinstance(data.index, pd.DatetimeIndex):
+            logger.warning("Index is not datetime, skipping weekend removal")
+            return data
+
+        # Keep only weekdays (Monday=0, Sunday=6)
+        weekday_mask = data.index.weekday < 5
+        result = data[weekday_mask]
+
+        removed_count = len(data) - len(result)
+        logger.info(f"✓ Removed {removed_count} weekend rows")
+        logger.info(f"✓ Remaining rows: {len(result)}")
+
+        return result
+
+    def forward_fill_sparse_features(
+        self, data: pd.DataFrame, sparse_threshold: float = 0.8
+    ) -> pd.DataFrame:
+        """
+        Forward fill sparse features (e.g., macro indicators with monthly data)
+
+        For features that are sparse (have many NaNs), forward fill the non-NaN values
+        to all subsequent days until a new non-NaN value appears. This preserves the
+        temporal relationship of sparse data (e.g., monthly macro indicators released
+        on specific dates).
+
+        Args:
+            data: Input data with sparse features
+            sparse_threshold: If NaN ratio > threshold, treat as sparse and forward fill
+
+        Returns:
+            DataFrame with sparse features forward filled
+        """
+        logger.info("Forward filling sparse features...")
+
+        result = data.copy()
+        result_cpu = self.gpu.to_cpu(result) if isinstance(result, cudf.DataFrame) else result
+
+        # Identify sparse columns
+        nan_ratios = result_cpu.isnull().sum() / len(result_cpu)
+        sparse_cols = nan_ratios[nan_ratios > sparse_threshold].index.tolist()
+
+        if sparse_cols:
+            logger.info(f"Found {len(sparse_cols)} sparse columns (NaN ratio > {sparse_threshold})")
+            logger.info(
+                f"  Sparse columns: {sparse_cols[:10]}{'...' if len(sparse_cols) > 10 else ''}"
+            )
+
+            # Forward fill sparse columns
+            for col in sparse_cols:
+                na_before = result_cpu[col].isnull().sum()
+                result_cpu[col] = result_cpu[col].fillna(method="ffill")
+                # Fill any remaining NaNs at start with backward fill
+                result_cpu[col] = result_cpu[col].fillna(method="bfill")
+                na_after = result_cpu[col].isnull().sum()
+                logger.info(f"  {col}: {na_before} → {na_after} NaNs")
+
+            logger.info(f"✓ Forward filled {len(sparse_cols)} sparse columns")
+        else:
+            logger.info("No sparse columns detected")
+
+        return result_cpu
+
+    def impute_remaining_nans(
+        self, data: pd.DataFrame, method: str = "interpolate"
+    ) -> pd.DataFrame:
+        """
+        Impute any remaining NaN values after sparse feature forward filling
+
+        Args:
+            data: Input data
+            method: Imputation method ('interpolate', 'forward_fill', 'mean', 'median')
+
+        Returns:
+            DataFrame with remaining NaNs imputed
+        """
+        logger.info(f"Imputing remaining NaNs using '{method}' method...")
+
+        result = data.copy()
+        na_before = result.isnull().sum().sum()
+
+        if method == "interpolate":
+            # Linear interpolation for time series
+            result = result.interpolate(method="linear", limit_direction="both", axis=0)
+        elif method == "forward_fill":
+            result = result.fillna(method="ffill").fillna(method="bfill")
+        elif method == "mean":
+            result = result.fillna(result.mean())
+        elif method == "median":
+            result = result.fillna(result.median())
+        else:
+            # No data imputation
+            pass
+
+        na_after = result.isnull().sum().sum()
+        logger.info(f"✓ Imputed remaining NaNs: {na_before} → {na_after}")
+
+        return result
+
+    def clean_and_impute_features(
+        self,
+        data: pd.DataFrame,
+        remove_weekends: bool = True,
+        sparse_threshold: float = 0.8,
+        impute_method: str = "interpolate",
+    ) -> pd.DataFrame:
+        """
+        Complete data cleaning and imputation pipeline
+
+        Steps:
+        1. Remove weekend rows (market closed)
+        2. Forward fill sparse features (e.g., macro, sentiment)
+        3. Interpolate remaining NaNs
+
+        Args:
+            data: Input feature data
+            remove_weekends: Whether to remove weekend rows
+            sparse_threshold: NaN ratio threshold for sparse feature detection
+            impute_method: Method for imputing remaining NaNs
+
+        Returns:
+            Cleaned and imputed feature DataFrame
+        """
+        logger.info("=" * 60)
+        logger.info("CLEANING AND IMPUTING FEATURES")
+        logger.info("=" * 60)
+
+        result = data.copy()
+
+        # Step 1: Remove weekends
+        if remove_weekends:
+            result = self.remove_weekends(result)
+
+        # Step 2: Remove holidays
+        result = self.remove_holidays(result)
+
+        # Step 3: Forward fill sparse features
+        result = self.forward_fill_sparse_features(result, sparse_threshold=sparse_threshold)
+
+        # Step 4: Drop empty columns
+        result = result.dropna(how="all", axis=1)
+
+        # Step 5: Impute remaining NaNs
+        if impute_method is not None:
+            result = self.impute_remaining_nans(result, method=impute_method)
+
+        # Step 6: Drop any remaining rows with NaNs
+        result = result.dropna(how="any", axis=0)
+
+        # Log final statistics
+        na_final = result.isnull().sum().sum()
+        logger.info(f"✓ Final missing values: {na_final}")
+        logger.info(f"✓ Final shape: {result.shape}")
+        logger.info("=" * 60)
+
+        return result
+
     def build_complete_features(
         self,
-        prices: DataFrame,
-        macro: DataFrame | None = None,
-        sentiment: DataFrame | None = None,
+        prices: pd.DataFrame,
+        macro: pd.DataFrame | None = None,
+        sentiment: pd.DataFrame | None = None,
         include_lags: bool = True,
         include_cross_sectional: bool = True,
         include_interaction: bool = True,
-    ) -> DataFrame:
+    ) -> pd.DataFrame:
         """
         Build complete feature set for ML models
 
@@ -832,7 +1029,24 @@ class FeatureEngineer:
         result = result.loc[:, ~result.columns.duplicated()]
 
         logger.info("=" * 60)
-        logger.info("✓ Complete feature set created")
+        logger.info("✓ Complete feature set created (before cleaning)")
+        logger.info(f"✓ Total features: {len(result.columns)}")
+        logger.info(f"✓ Date range: {result.index[0]} to {result.index[-1]}")
+        logger.info(f"✓ Shape: {result.shape}")
+        logger.info(f"✓ Missing values: {result.isnull().sum().sum()}")
+        logger.info("=" * 60)
+
+        # Clean and impute features
+        result = self.clean_and_impute_features(
+            result,
+            remove_weekends=True,
+            sparse_threshold=0.8,
+            # impute_method="interpolate",
+            impute_method=None,
+        )
+
+        logger.info("=" * 60)
+        logger.info("✓ Complete feature set finalized (after cleaning)")
         logger.info(f"✓ Total features: {len(result.columns)}")
         logger.info(f"✓ Date range: {result.index[0]} to {result.index[-1]}")
         logger.info(f"✓ Shape: {result.shape}")
